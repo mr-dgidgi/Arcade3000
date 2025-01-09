@@ -1,21 +1,21 @@
 // LED Controlling for Arcade3000 Cabinet
 
 // Array to store each light with : [pin][brightness][program][moving][delay]
-int Lights[3][5] = {
+const int LightNumber = 3;
+int Lights[LightNumber][5] = {
     {3,0,0,0,0},
     {5,0,0,0,0},
     {6,0,0,0,0}
 };
 
-// intensity level step (5 = 255/5 = 51 intensity level)
-const int fadeAmount = 5;
+bool Startup=true;
 
 void setup() {
     // Configurer la broche LED comme sortie
-    for(int i=0;i<3;i++) {
+    for(int i=0;i<LightNumber;i++) {
         pinMode(Lights[i][0], OUTPUT);
     }
-    for(int i=0;i<3;i++) {
+    for(int i=0;i<LightNumber;i++) {
         analogWrite(Lights[i][0], Lights[i][1]);
     }
 }
@@ -24,12 +24,10 @@ void loop() {
 /* 
 program :
 0 : turned of
-1 : 1/5 power
-2 : 2/5 power
-3 : 3/5 power
-4 : 5/5 power
-5 : full power
-
+1 : 1/4 power
+2 : 2/4 power
+3 : 3/4 power
+4 : full power
 moving : 
 0 : stable
 1 : dim up slow
@@ -38,7 +36,32 @@ moving :
 4 : dim down quick
 5 : instant
 */
-    for(int i=0;i<3;i++) {
+  if (Startup) && (Lights[i][4] == 0){
+    if (Lights[i][1] == 0){
+      for(int i=0;i<LightNumber;i++) {
+        Lights[i][2] = 4;
+        Lights[i][3] = 1;
+        Lights[i][4] = 1;
+      }
+      else if (Lights[i][1] > 240){
+        for(int i=0;i<LightNumber;i++) {
+          Lights[i][2] = 1;
+          Lights[i][3] = 5;
+          Lights[i][4] = 100;
+        }
+      }
+      else {
+        delay(1000);
+        for(int i=0;i<LightNumber;i++) {
+          Lights[i][2] = 4;
+          Lights[i][3] = 3;
+          Lights[i][4] = 10;
+        }
+        Startup = false;
+    }
+  }
+  else {
+    for(int i=0;i<LightNumber;i++) {
       //check movement
       switch (Lights[i][3]) {
         // if stable
@@ -80,13 +103,7 @@ moving :
 
       delay(10);
     }
-
-//    for(int i=0;i<3;i++) {
-//        Lights[i][1] = random(0,25)*10;
-//        analogWrite(Lights[i][0], Lights[i][1]);
-//    }
-  // slowing the loop
-//  delay(500);
+  }
 }
 
 void ContinueDim(int PinNumber, int* PinValue, int DimType) {
