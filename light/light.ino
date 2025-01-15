@@ -9,6 +9,7 @@ int Lights[LightNumber][5] = {
 };
 
 bool Startup=true;
+int Phase=1;
 
 void setup() {
     // Configurer la broche LED comme sortie
@@ -36,29 +37,40 @@ moving :
 4 : dim down quick
 5 : instant
 */
-  if (Startup) && (Lights[i][4] == 0){
-    if (Lights[i][1] == 0){
-      for(int i=0;i<LightNumber;i++) {
-        Lights[i][2] = 4;
-        Lights[i][3] = 1;
-        Lights[i][4] = 1;
-      }
-      else if (Lights[i][1] > 240){
-        for(int i=0;i<LightNumber;i++) {
-          Lights[i][2] = 1;
-          Lights[i][3] = 5;
-          Lights[i][4] = 100;
-        }
-      }
-      else {
-        delay(1000);
-        for(int i=0;i<LightNumber;i++) {
-          Lights[i][2] = 4;
-          Lights[i][3] = 3;
-          Lights[i][4] = 10;
-        }
-        Startup = false;
+  if (Startup == true){
+    for(int i=0;i<LightNumber;i++) {
+      Lights[i][2] = 4;
+      Lights[i][3] = 1;
+      Lights[i][4] = 1;
     }
+    while (Phase==1){
+      bool exitloop=false;
+      for(int i=0;i<LightNumber;i++) {
+        ContinueDim(Lights[i][0],&Lights[i][1],Lights[i][3]);
+      }
+      delay(100);
+      if (Lights[1][1]>=Lights[1][2]*50+50){
+        Phase=2;
+      }
+    }
+    for(int i=0;i<LightNumber;i++) {
+      Lights[i][2] = 0;
+      Lights[i][3] = 2;
+      Lights[i][4] = 1;
+    }
+    while (Phase==2){
+      bool exitloop=false;
+      for(int i=0;i<LightNumber;i++) {
+        ContinueDim(Lights[i][0],&Lights[i][1],Lights[i][3]);
+      }
+      delay(100);
+      if (Lights[1][1]<Lights[1][2]*50){
+        Phase=3;
+      }
+    }
+    
+    Startup = false;
+    
   }
   else {
     for(int i=0;i<LightNumber;i++) {
