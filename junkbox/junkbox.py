@@ -24,6 +24,7 @@ import time
 import threading
 import importlib
 import random
+import math
 
 import pygame
 
@@ -46,9 +47,14 @@ def scan_music(root):
                 genres.append((entry, tracks))
     return genres
 
-# ---------- Audio player with fallback ----------
+
+# ---------- Audio player (sans fallback dummy) ----------
 class Player:
-    DEFAULT_SIM_LENGTH = 30.0  # secondes si durée inconnue en mode dummy
+    """
+    Si pygame.mixer.init() échoue, available=False et play() lève une exception.
+    """
+
+    DEFAULT_SIM_LENGTH = 30.0  # conservé si jamais besoin, mais non utilisé en mode strict
 
     def __init__(self):
         self.lock = threading.Lock()
@@ -58,61 +64,37 @@ class Player:
         self._stop_flag = False
         self.available = True
         self._sim_start = None
-        # init mixer with fallback to dummy if necessary
+
+        # Init mixer -> si échec, on passe available=False (pas de fallback dummy)
         try:
             pygame.mixer.init()
-        except Exception as e1:
-            try:
-                os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
-                try:
-                    importlib.reload(pygame)
-                except Exception:
-                    pass
-                pygame.mixer.init()
-            except Exception as e2:
-                self.available = False
-                self._init_error = (e1, e2)
+        except Exception as e:
+            self.available = False
+            self._init_error = e
+            # log pour debug
+            print("[Player] ERROR: pygame.mixer.init() failed — audio disabled.", e, file=sys.stderr)
 
     def load_length(self, filepath):
-        if self.available:
-            try:
-                snd = pygame.mixer.Sound(filepath)
-                return snd.get_length()
-            except Exception:
-                return 0.0
-        else:
+        """Essaye d'obtenir la durée via pygame (ou mutagen si tu le gardes ailleurs)."""
+        if not self.available:
+            return 0.0
+        try:
+            snd = pygame.mixer.Sound(filepath)
+            return snd.get_length()
+        except Exception:
             return 0.0
 
     def play(self, filepath):
+        """Démarre la lecture réelle. Si audio non disponible, lève RuntimeError."""
+        if not self.available:
+            raise RuntimeError("Audio non disponible : pygame.mixer n'a pas pu être initialisé.")
         with self.lock:
-            self.stop()
-            if not self.available:
-                # simulate playback
-                self.current = filepath
-                # try to get a length, else use default
-                length = self.load_length(filepath) or 0.0
-                if length <= 0.0:
-                    length = self.DEFAULT_SIM_LENGTH
-                self.length = length
-                self.playing = True
-                self._stop_flag = False
-                self._sim_start = time.time()
+            # stoppe ce qui pourrait être en cours
+            try:
+                pygame.mixer.music.stop()
+            except Exception:
+                pass
 
-                def _sim():
-                    start = self._sim_start
-                    while not self._stop_flag and (time.time() - start) < self.length:
-                        time.sleep(0.1)
-                    # mark finished
-                    with self.lock:
-                        self.playing = False
-                        self.current = None
-                        self._sim_start = None
-                        self._stop_flag = False
-
-                threading.Thread(target=_sim, daemon=True).start()
-                return
-
-            # real audio path
             try:
                 pygame.mixer.music.load(filepath)
                 pygame.mixer.music.play()
@@ -120,8 +102,13 @@ class Player:
                 self.length = self.load_length(filepath)
                 self.playing = True
                 self._stop_flag = False
+                # mémoriser un start_time utile si get_pos() échoue
                 self._sim_start = time.time()
+                print(f"[Player] lecture démarrée: {filepath} (durée approx {self.length}s)", file=sys.stderr)
             except Exception as e:
+                # ne pas masquer l'erreur : on la propage pour que la UI l'affiche
+                print(f"[Player] Erreur lors du load/play: {e}", file=sys.stderr)
+                # nettoyer état
                 self.current = None
                 self.playing = False
                 self._sim_start = None
@@ -135,31 +122,32 @@ class Player:
                     pygame.mixer.music.stop()
                 except Exception:
                     pass
-            # reset simulation state
             self.playing = False
             self.current = None
             self._sim_start = None
-            # small delay to allow sim thread to exit if running
+            # petit délai pour laisser le système se stabiliser
             time.sleep(0.01)
+            print("[Player] stopped", file=sys.stderr)
 
     def get_pos(self):
-        """Return position in seconds. Works for both real and simulated playback."""
+        """Retourne la position en secondes, ou None si indisponible."""
         if not self.available:
-            if self._sim_start is None:
-                return None
-            return time.time() - self._sim_start
-        pos_ms = pygame.mixer.music.get_pos()
-        if pos_ms < 0:
-            # no position info
-            # If we started playback just now, we can return elapsed since _sim_start if set
+            return None
+        try:
+            pos_ms = pygame.mixer.music.get_pos()
+            if pos_ms >= 0:
+                return pos_ms / 1000.0
+            # fallback sur timestamp si on l'a gardé
             if self._sim_start:
                 return time.time() - self._sim_start
-            return None
-        return pos_ms / 1000.0
+        except Exception:
+            if self._sim_start:
+                return time.time() - self._sim_start
+        return None
 
     def is_playing(self):
         if not self.available:
-            return self.playing
+            return False
         try:
             return pygame.mixer.music.get_busy()
         except Exception:
@@ -174,7 +162,6 @@ def draw_text(surface, text, font, pos, color, align="topleft"):
     surface.blit(surf, rect)
     return surf, rect
 
-
 def draw_glitch_text(surface, text, font, pos, base_color, time_seed, max_jitter=6, glitch_prob=0.015):
     """Draw text normally then sometimes add glitch layers (offset colored duplicates).
     - glitch_prob: per-frame chance to trigger an intense glitch for this text
@@ -187,7 +174,9 @@ def draw_glitch_text(surface, text, font, pos, base_color, time_seed, max_jitter
     rect.topleft = pos
     surface.blit(surf, rect)
 
-    rng = random.Random((time_seed, int(time.time() * 1000)))
+    # Use a string seed (acceptable by random.Random) to avoid TypeError
+    seed_val = f"{time_seed}-{int(time.time() * 1000)}"
+    rng = random.Random(seed_val)
     drew_glitch = False
 
     # Small subtle shimmer (always small chance per frame)
@@ -211,27 +200,30 @@ def draw_glitch_text(surface, text, font, pos, base_color, time_seed, max_jitter
             layer = font.render(text, True, color)
             lrect = layer.get_rect()
             lrect.topleft = (pos[0] + ox, pos[1] + oy)
-            layer.set_alpha(160 - i * 40)
+            # ensure alpha is an int between 0 and 255
+            alpha_val = max(0, min(255, 160 - i * 40))
+            layer.set_alpha(alpha_val)
             surface.blit(layer, lrect)
 
         # also draw a horizontal slice shifted
         try:
-            slice_y = rng.randint(0, surf.get_height() - 1)
-            slice_h = max(1, rng.randint(1, surf.get_height() // 4))
-            clip_rect = pygame.Rect(0, slice_y, surf.get_width(), slice_h)
-            fragment = surf.subsurface(clip_rect).copy()
-            frag_rect = fragment.get_rect()
-            frag_rect.topleft = (
-                pos[0] + rng.randint(-20, 20),
-                pos[1] + slice_y + rng.randint(-4, 4)
-            )
-            fragment.set_alpha(200)
-            surface.blit(fragment, frag_rect)
+            if surf.get_height() > 1 and surf.get_width() > 0:
+                slice_y = rng.randint(0, surf.get_height() - 1)
+                slice_h = max(1, rng.randint(1, max(1, surf.get_height() // 4)))
+                clip_rect = pygame.Rect(0, slice_y, surf.get_width(), slice_h)
+                fragment = surf.subsurface(clip_rect).copy()
+                frag_rect = fragment.get_rect()
+                frag_rect.topleft = (
+                    pos[0] + rng.randint(-20, 20),
+                    pos[1] + slice_y + rng.randint(-4, 4)
+                )
+                fragment.set_alpha(200)
+                surface.blit(fragment, frag_rect)
         except Exception:
+            # defensive: if subsurface fails, ignore the slice
             pass
 
     return drew_glitch
-
 
 
 def draw_scanlines(surface, line_spacing=4, alpha=18, animate=False, t=0.0, speed=60, band_height=80, band_alpha=110):
@@ -286,6 +278,7 @@ def format_time(t):
     m = ti // 60
     s = ti % 60
     return f"{m}:{s:02d}"
+
 
 # ---------- Main app ----------
 
@@ -374,9 +367,8 @@ def main(music_root, font_path=None):
 
     # Colors (cyberpunk neon)
     BG = (6, 6, 12)
-    NEON_PINK = (255, 85, 255)
-    NEON_CYAN = (0, 255, 255)
-    NEON_YELLOW = (255, 220, 90)
+    NEON_PINK = (255, 7, 58)
+    NEON_GREEN = (57, 255, 20)
     TEXT = (200, 200, 220)
     DIM = (120, 120, 130)
 
@@ -402,7 +394,8 @@ def main(music_root, font_path=None):
     ti = 0
     credits = 0
     player = Player()
-    msg = "Bienvenue dans CyberJuke - Presse Espace pour credit."
+    queue = []
+    msg = "Bienvenue dans CyberJuke - 1 credit, 1 musique."
 
     clock = pygame.time.Clock()
     running = True
@@ -419,100 +412,96 @@ def main(music_root, font_path=None):
     last_glitch_time = 0
     glitch_cooldown = 0.12
 
+    
+
     while running:
+        def play_or_queue_selected():
+            nonlocal credits, msg, last_msg_time
+            selected = genres[gi][1][ti]
+            if credits <= 0:
+                msg = "Pas assez de crédits. Appuie sur Espace/Select pour ajouter 1 crédit."
+                last_msg_time = time.time()
+            else:
+                credits -= 1
+                queue.append(selected)
+                qname = os.path.splitext(os.path.basename(selected))[0]
+                if not player.playing and not player.is_playing():
+                    next_track = queue.pop(0)
+                    try:
+                        player.play(next_track)
+                        nm = os.path.splitext(os.path.basename(next_track))[0]
+                        msg = f"Lecture : {nm}"
+                    except Exception as e:
+                        msg = f"Erreur lecture: {e}"
+                else:
+                    msg = f"Ajouté en file : {qname}"
+                last_msg_time = time.time()
+
+        def stop_playback():
+            nonlocal msg, last_msg_time
+            player.stop()
+            msg = "Arrêt de la lecture."
+            last_msg_time = time.time()
+
+        def add_credit():
+            nonlocal credits, msg, last_msg_time
+            credits += 1
+            msg = f"credit ajouté. Total: {credits}"
+            last_msg_time = time.time()
+
+        def move_genre(dx):
+            nonlocal gi, ti, msg, last_msg_time
+            gi = (gi + dx) % len(genres)
+            ti = min(ti, len(genres[gi][1]) - 1)
+            msg = f"Genre -> {genres[gi][0]}"
+            last_msg_time = time.time()
+
+        def move_track(dy):
+            nonlocal ti
+            ti = (ti + dy) % len(genres[gi][1])
+
         for ev in pygame.event.get():
             if ev.type == pygame.QUIT:
                 running = False
-            # joystick hat (dpad)
             elif ev.type == pygame.JOYHATMOTION:
                 try:
                     hx, hy = ev.value
                 except Exception:
                     hx, hy = 0, 0
-                # vertical (track selection)
                 if hy == 1:
-                    ti = (ti - 1) % len(genres[gi][1])
+                    move_track(-1)
                 elif hy == -1:
-                    ti = (ti + 1) % len(genres[gi][1])
-                # horizontal (genre selection)
+                    move_track(1)
                 if hx == -1:
-                    gi = (gi - 1) % len(genres)
-                    ti = min(ti, len(genres[gi][1]) - 1)
-                    msg = f"Genre -> {genres[gi][0]}"
-                    last_msg_time = time.time()
+                    move_genre(-1)
                 elif hx == 1:
-                    gi = (gi + 1) % len(genres)
-                    ti = min(ti, len(genres[gi][1]) - 1)
-                    msg = f"Genre -> {genres[gi][0]}"
-                    last_msg_time = time.time()
-            # joystick buttons
+                    move_genre(1)
             elif ev.type == pygame.JOYBUTTONDOWN:
                 b = getattr(ev, 'button', None)
                 if b is not None:
-                    # A -> play (common mapping button 0)
                     if b == 0:
-                        selected = genres[gi][1][ti]
-                        if credits <= 0:
-                            msg = "Pas assez de credits. Appuie sur Select/back pour ajouter 1 credit."
-                            last_msg_time = time.time()
-                        else:
-                            try:
-                                player.play(selected)
-                                credits -= 1
-                                msg = f"Lecture: {os.path.basename(selected)}  (credits: {credits})"
-                                last_msg_time = time.time()
-                            except Exception as e:
-                                msg = f"Erreur lecture: {e}"
-                                last_msg_time = time.time()
-                    # B -> stop (common mapping button 1)
+                        play_or_queue_selected()
                     elif b == 1:
-                        player.stop()
-                        msg = "Arrêt de la lecture."
-                        last_msg_time = time.time()
-                    # Select / Back -> add credit (button 6 or 8 on some controllers)
+                        stop_playback()
                     elif b in (6, 8):
-                        credits += 1
-                        msg = f"credit ajouté. Total: {credits}"
-                        last_msg_time = time.time()
+                        add_credit()
             elif ev.type == pygame.KEYDOWN:
                 if ev.key in (pygame.K_ESCAPE, pygame.K_q):
                     running = False
                 elif ev.key == pygame.K_LEFT:
-                    gi = (gi - 1) % len(genres)
-                    ti = min(ti, len(genres[gi][1]) - 1)
-                    msg = f"Genre -> {genres[gi][0]}"
-                    last_msg_time = time.time()
+                    move_genre(-1)
                 elif ev.key == pygame.K_RIGHT:
-                    gi = (gi + 1) % len(genres)
-                    ti = min(ti, len(genres[gi][1]) - 1)
-                    msg = f"Genre -> {genres[gi][0]}"
-                    last_msg_time = time.time()
+                    move_genre(1)
                 elif ev.key == pygame.K_UP:
-                    ti = (ti - 1) % len(genres[gi][1])
+                    move_track(-1)
                 elif ev.key == pygame.K_DOWN:
-                    ti = (ti + 1) % len(genres[gi][1])
+                    move_track(1)
                 elif ev.key == pygame.K_SPACE:
-                    credits += 1
-                    msg = f"credit ajouté. Total: {credits}"
-                    last_msg_time = time.time()
+                    add_credit()
                 elif ev.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
-                    selected = genres[gi][1][ti]
-                    if credits <= 0:
-                        msg = "Pas assez de credits. Appuie sur espace pour ajouter 1 credit."
-                        last_msg_time = time.time()
-                    else:
-                        try:
-                            player.play(selected)
-                            credits -= 1
-                            msg = f"Lecture: {os.path.basename(selected)}  (credits: {credits})"
-                            last_msg_time = time.time()
-                        except Exception as e:
-                            msg = f"Erreur lecture: {e}"
-                            last_msg_time = time.time()
+                    play_or_queue_selected()
                 elif ev.key == pygame.K_s:
-                    player.stop()
-                    msg = "Arrêt de la lecture."
-                    last_msg_time = time.time()
+                    stop_playback()
 
         # Clear
         screen.fill(BG)
@@ -522,21 +511,11 @@ def main(music_root, font_path=None):
         title_pos = (30, 20)
         if glitch_enabled and random.random() < 0.02:
             # instant glitch triggered
-            draw_glitch_text(screen, title_text, font_title, title_pos, NEON_CYAN, time_seed=1, max_jitter=12, glitch_prob=0.5)
+            draw_glitch_text(screen, title_text, font_title, title_pos, NEON_GREEN, time_seed=1, max_jitter=12, glitch_prob=0.5)
             last_glitch_time = time.time()
         else:
             # small shimmer or normal
-            draw_glitch_text(screen, title_text, font_title, title_pos, NEON_CYAN, time_seed=1, max_jitter=4, glitch_prob=0.006)
-
-        # --- DUMMY MODE INDICATOR ---
-        # Affiche un message visible si on est en fallback dummy (aucune sortie audio)
-        if not player.available:
-            # flicker the red/orange color slightly for cyberpunk alarm
-            flicker = random.randint(120, 255)
-            dummy_color = (255, flicker // 2, flicker // 2)
-            dummy_text = "[MODE DUMMY ACTIVÉ – aucune sortie audio]"
-            # placed top-left with small margin
-            draw_text(screen, dummy_text, font_small, (20, 18), dummy_color, align="topleft")
+            draw_glitch_text(screen, title_text, font_title, title_pos, NEON_GREEN, time_seed=1, max_jitter=4, glitch_prob=0.006)
 
         # Genre strip (center top)
         genre_names = [g for g, t in genres]
@@ -545,8 +524,8 @@ def main(music_root, font_path=None):
 
         # Selected track info (left) - glitchable
         genre_name, tracks = genres[gi]
-        sel_name = os.path.basename(tracks[ti])
-        draw_text(screen, f"Genre: {genre_name}", font_med, (60, 160), NEON_YELLOW, align="topleft")
+        sel_name = os.path.splitext(os.path.basename(tracks[ti]))[0]
+        draw_text(screen, f"Genre: {genre_name}", font_med, (60, 160), NEON_PINK, align="topleft")
 
         # draw the selectable track with strong glitch probability so it "flickers"
         sel_pos = (60, 200)
@@ -554,9 +533,8 @@ def main(music_root, font_path=None):
 
         # Credits and controls (right)
         controls = [
-            f"credits: {credits}  (Espace = +1 credit)",
+            f"credits: {credits}",
             "← → : genres    ↑ ↓ : pistes",
-            "Entrée : jouer (1 credit)    s : stop    q/Esc : quitter"
         ]
         y = 160
         for c in controls:
@@ -568,11 +546,17 @@ def main(music_root, font_path=None):
         list_y = 300
         max_lines = 20
         start = max(0, ti - max_lines//2)
+        # --- fond plus clair pour la zone de liste ---
+        list_w = 520  # largeur arbitraire, ajuste si besoin
+        list_h = max_lines * 28 + 12  # hauteur selon nb lignes
+        list_bg_color = (30, 30, 40)  # couleur plus claire que BG
+        pygame.draw.rect(screen, list_bg_color, (list_x - 16, list_y - 8, list_w, list_h), border_radius=12)
+        # --- fin fond ---
         for idx in range(start, min(len(tracks), start + max_lines)):
-            fname = os.path.basename(tracks[idx])
-            prefix = "▶ " if (player.current and os.path.basename(player.current) == fname and player.is_playing()) else "  "
+            fname = os.path.splitext(os.path.basename(tracks[idx]))[0]
+            prefix = "=> " if (player.current and os.path.splitext(os.path.basename(player.current))[0] == fname and player.is_playing()) else "   "
             text = prefix + fname
-            color = NEON_CYAN if idx == ti else DIM
+            color = NEON_GREEN if idx == ti else DIM
             font_use = font_med if idx == ti else font_small
             # selected line jitters a bit to sell the glitch effect
             if idx == ti and random.random() < 0.02:
@@ -580,6 +564,18 @@ def main(music_root, font_path=None):
             else:
                 jitter = (0,0)
             draw_text(screen, text, font_use, (list_x + jitter[0], list_y + (idx - start) * 28 + jitter[1]), color, align="topleft")
+        
+        # Queue display (top-right block)
+        q_x = screen_w - 420  # ajuste selon ton layout
+        q_y = 300
+        draw_text(screen, "File d'attente:", font_med, (q_x, q_y - 28), NEON_PINK, align="topleft")
+        max_q_lines = 10
+        for qi, qpath in enumerate(queue[:max_q_lines]):
+            qname = os.path.splitext(os.path.basename(qpath))[0]
+            draw_text(screen, "{}. {}".format(qi + 1, qname), font_small, (q_x, q_y + qi * 26), NEON_GREEN, align="topleft")
+        if len(queue) > max_q_lines:
+            draw_text(screen, "... ({} autres)".format(len(queue) - max_q_lines), font_small, (q_x, q_y + max_q_lines * 26), DIM, align="topleft")
+
 
         # Progress bar
         if player.current and player.is_playing():
@@ -598,7 +594,7 @@ def main(music_root, font_path=None):
                 pygame.draw.rect(screen, NEON_PINK, (PROGRESS_X, PROGRESS_Y, filled_w, PROGRESS_BAR_H), border_radius=6)
             # elapsed text
             time_text = f"{format_time(pos)} / {format_time(length)}"
-            draw_text(screen, time_text, font_small, (screen_w//2, PROGRESS_Y - 30), NEON_CYAN, align="midtop")
+            draw_text(screen, time_text, font_small, (screen_w//2, PROGRESS_Y - 30), NEON_GREEN, align="midtop")
         else:
             # empty bar
             pygame.draw.rect(screen, (30, 30, 40), (PROGRESS_X - 4, PROGRESS_Y - 4, PROGRESS_BAR_W + 8, PROGRESS_BAR_H + 8), border_radius=6)
@@ -619,7 +615,13 @@ def main(music_root, font_path=None):
 
         # Footer message (brief)
         if msg and time.time() - last_msg_time < 6:
-            draw_text(screen, msg, font_small, (screen_w//2, screen_h - 50), NEON_YELLOW, align="midtop")
+            draw_text(screen, msg, font_small, (screen_w//2, screen_h - 50), NEON_PINK, align="midtop")
+
+        # Animation égaliseur central (affichée uniquement si une musique est en cours)
+        if pygame.mixer.music.get_busy():
+            t = pygame.time.get_ticks() / 1000.0
+            center = (screen.get_width() // 2, screen.get_height() // 2)
+            size = (screen.get_width() // 2, int(screen.get_height() * 0.38))
 
         pygame.display.flip()
 
@@ -627,8 +629,20 @@ def main(music_root, font_path=None):
         if player.current and not player.is_playing() and player.playing:
             player.playing = False
             player.current = None
-            msg = "Lecture terminée."
-            last_msg_time = time.time()
+            # si file non vide -> lancer la suivante automatiquement
+            if queue:
+                next_track = queue.pop(0)
+                try:
+                    player.play(next_track)
+                    nm = os.path.splitext(os.path.basename(next_track))[0]
+                    msg = "Lecture automatique : {}".format(nm)
+                except Exception as e:
+                    msg = "Erreur lecture automatique: {}".format(e)
+                last_msg_time = time.time()
+            else:
+                msg = "Lecture terminée."
+                last_msg_time = time.time()
+
 
         clock.tick(30)
 
