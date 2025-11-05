@@ -22,10 +22,7 @@ import sys
 import os
 import time
 import threading
-import importlib
 import random
-import math
-
 import pygame
 
 AUDIO_EXTS = ('.mp3', '.wav', '.ogg', '.flac')
