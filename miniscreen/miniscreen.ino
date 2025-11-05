@@ -691,7 +691,7 @@ void setup() {
     OLEDScreen.drawBitmap(
         (OLEDScreen.width()  - ImageWidth ) / 2,      // Position de l'extrême "gauche" de l'image (pour centrage écran, ici)
         (OLEDScreen.height() - ImageHeight) / 2,       // Position de l'extrême "haute" de l'image (pour centrage écran, ici)
-        Frame1,
+        epd_bitmap_pixil_frame_0,
         ImageWidth,
         ImageHeight,
         WHITE);                                           // "couleur" de l'image
@@ -706,7 +706,7 @@ void setup() {
 // =================
 void loop() {
 
-    if (AnimJump) {
+    if (AnimJump == true) {
         if (CurrentFrame < epd_bitmap_allArray_LEN - 1) {
             CurrentFrame++;
         } else {
@@ -715,7 +715,7 @@ void loop() {
         }
     }
     else {
-        if (CurrentFrame < 2) {
+        if (CurrentFrame < 2 && AnimReverse == false) {
             CurrentFrame++;
         } 
         else if (CurrentFrame > 0) {
@@ -724,9 +724,12 @@ void loop() {
         }
         else {
             if (random(0,10) == 0){
-                AnimJump = true;
-                AnimReverse = false;
+	            AnimJump = true;
+              AnimReverse = false;
             }   
+						else {
+							AnimReverse = false;
+						}
         }
 
     }
