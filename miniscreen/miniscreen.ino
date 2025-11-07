@@ -1,13 +1,23 @@
+/*
+Script to manage a mini OLED screen and display images on it
+It also handle led animations
+
+by dgidgi
+contact@dgidgi.ovh
+
+NO AI USED IN THE CREATION OF THIS CODE
+
+*/
 #include <Adafruit_SSD1306.h>
 
 // =======================
 // Paramètrages écran OLED
 // =======================
-#define OLEDWidth 128         // Taille de l'écran OLED, en pixel, au niveau de sa largeur
-#define OLEDHeight 64          // Taille de l'écran OLED, en pixel, au niveau de sa hauteur
-#define OLEDReset -1          // Reset de l'OLED partagé avec l'Arduino (d'où la valeur à -1, et non un numéro de pin)
-#define OLEDAddr1 0x3C        // Adresse de "mon" écran OLED sur le bus i2c (généralement égal à 0x3C ou 0x3D)
-#define OLEDAddr2 0x3D        // Adresse alternative possible de l'écran OLED sur le bus i2c
+#define OLEDWidth 128
+#define OLEDHeight 64
+#define OLEDReset -1
+#define OLEDAddr1 0x3C
+#define OLEDAddr2 0x3D
 Adafruit_SSD1306 OLEDScreen(OLEDWidth, OLEDHeight, &Wire, OLEDReset);
 
 // ================
@@ -673,39 +683,64 @@ int CurrentFrame = 0;
 bool AnimJump = true;
 bool AnimReverse = false;
 
+// Array to store each light with : [pin][brightness][program][moving][delay]
+const int LightNumber = 3;
+int Lights[LightNumber][5] = {
+    {3,0,0,0,0},
+    {5,0,0,0,0},
+    {6,0,0,0,0}
+};
 
+bool Startup=true;
+int Phase=1;
 
 
 
 // ========================
-// Initialisation programme
+// Initialisation
 // ========================
 void setup() {
+    // ================================================
+    // screen
+    // ================================================
 
-    // Initialisation de l'écran OLED
+    // OLED screen initialisation
     OLEDScreen.begin(SSD1306_SWITCHCAPVCC, OLEDAddr1);
 
-    // Affichage d'une image au centre de l'écran
-    OLEDScreen.clearDisplay();                           // Effaçage de la mémoire tampon de l'écran OLED
-
+    // clean screen buffer
+    OLEDScreen.clearDisplay();                           
+    // draw initial image in the buffer
     OLEDScreen.drawBitmap(
-        (OLEDScreen.width()  - ImageWidth ) / 2,      // Position de l'extrême "gauche" de l'image (pour centrage écran, ici)
-        (OLEDScreen.height() - ImageHeight) / 2,       // Position de l'extrême "haute" de l'image (pour centrage écran, ici)
+        (OLEDScreen.width()  - ImageWidth ) / 2,
+        (OLEDScreen.height() - ImageHeight) / 2,
         epd_bitmap_pixil_frame_0,
         ImageWidth,
         ImageHeight,
-        WHITE);                                           // "couleur" de l'image
+        WHITE);
+    // print the buffer to the screen
+    OLEDScreen.display();
 
-    OLEDScreen.display();                                // Transfert de la mémoire tampon à l'écran OLED, pour affichage
+    // ================================================
+    // led
+    // ================================================
+    // configure pins as output and set initial brightness
+    for(int i=0;i<LightNumber;i++) {
+        pinMode(Lights[i][0], OUTPUT);
+    }
+    for(int i=0;i<LightNumber;i++) {
+        analogWrite(Lights[i][0], Lights[i][1]);
+    }
 
 }
 
 
 // =================
-// Boucle principale
+// main loop
 // =================
 void loop() {
-
+    // ================================================
+    // screen
+    // ================================================
     if (AnimJump == true) {
         if (CurrentFrame < epd_bitmap_allArray_LEN - 1) {
             CurrentFrame++;
@@ -713,25 +748,20 @@ void loop() {
             CurrentFrame = 0;
             AnimJump = false;
         }
-    }
-    else {
+    } else {
         if (CurrentFrame < 2 && AnimReverse == false) {
             CurrentFrame++;
-        } 
-        else if (CurrentFrame > 0) {
+        } else if (CurrentFrame > 0) {
             CurrentFrame--;
             AnimReverse = true;
+        } else {
+            if (random(0, 10) == 0) {
+                AnimJump = true;
+                AnimReverse = false;
+            } else {
+                AnimReverse = false;
+            }
         }
-        else {
-            if (random(0,10) == 0){
-	            AnimJump = true;
-              AnimReverse = false;
-            }   
-						else {
-							AnimReverse = false;
-						}
-        }
-
     }
     OLEDScreen.clearDisplay();
     OLEDScreen.drawBitmap(
@@ -743,6 +773,141 @@ void loop() {
         WHITE);
     
     OLEDScreen.display();
+
+
+	// ================================================
+	// led
+	// ================================================	
+  /* 
+  program :
+  0 : turned of
+  1 : 1/4 power
+  2 : 2/4 power
+  3 : 3/4 power
+  4 : full power
+  moving : 
+  0 : stable
+  1 : dim up slow
+  2 : dim down slow
+  3 : dim up quick
+  4 : dim down quick
+  5 : instant
+  */
+  if (Startup == true){
+    for(int i=0;i<LightNumber;i++) {
+      Lights[i][2] = 4;
+      Lights[i][3] = 1;
+      Lights[i][4] = 1;
+    }
+    while (Phase==1){
+      bool exitloop=false;
+      for(int i=0;i<LightNumber;i++) {
+        ContinueDim(Lights[i][0],&Lights[i][1],Lights[i][3]);
+      }
+      delay(100);
+      if (Lights[1][1]>=Lights[1][2]*50+50){
+        Phase=2;
+      }
+    }
+    for(int i=0;i<LightNumber;i++) {
+      Lights[i][2] = 0;
+      Lights[i][3] = 2;
+      Lights[i][4] = 1;
+    }
+    while (Phase==2){
+      bool exitloop=false;
+      for(int i=0;i<LightNumber;i++) {
+        ContinueDim(Lights[i][0],&Lights[i][1],Lights[i][3]);
+      }
+      delay(100);
+      if (Lights[1][1]<Lights[1][2]*50){
+        Phase=3;
+      }
+    }
+    
+    Startup = false;
+    
+  }
+  else {
+    for(int i=0;i<LightNumber;i++) {
+      //check movement
+      switch (Lights[i][3]) {
+        // if stable
+        case 0:
+            Randomized(&Lights[i][2],&Lights[i][3],&Lights[i][4]);
+          break;
+
+        //if dim up        
+        case 1:
+        case 3:
+          if (Lights[i][1]<Lights[i][2]*50+50) {
+            ContinueDim(Lights[i][0],&Lights[i][1],Lights[i][3]);
+          }
+          else {
+            Randomized(&Lights[i][2],&Lights[i][3],&Lights[i][4]);
+          }
+          break;
+        
+        //if dim down
+        case 2:
+        case 4:
+          if (Lights[i][1]>Lights[i][2]*50) {
+            ContinueDim(Lights[i][0],&Lights[i][1],Lights[i][3]);
+          }
+          else {
+            Randomized(&Lights[i][2],&Lights[i][3],&Lights[i][4]);
+          }
+          break; 
+
+        // if instant 
+        case 5:
+          if (Lights[i][1]!=Lights[i][2]*50) {
+            ContinueDim(Lights[i][0],&Lights[i][1],Lights[i][3]);
+          }
+          else {
+            Randomized(&Lights[i][2],&Lights[i][3],&Lights[i][4]);
+          }
+      }
+    }
+  }
     delay(100);
 
+}
+
+void ContinueDim(int PinNumber, int* PinValue, int DimType) {
+    switch (DimType) {
+        case 0:
+            *PinValue = *PinValue;
+            break;
+        case 1:
+            *PinValue = *PinValue + 5;
+            break;
+        case 2:
+            *PinValue = *PinValue - 5;
+            break;
+        case 3:
+            *PinValue = *PinValue + 25;
+            break;
+        case 4:
+            *PinValue = *PinValue - 25;
+            break;
+    }
+    analogWrite(PinNumber, *PinValue);
+}
+
+void Randomized(int* Prog, int* Speed, int* Rand) {
+    if (*Rand > 0) {
+        (*Rand)--;
+    } else {
+        // random Program
+        *Prog = random(0, 4);
+        // random dim/speed
+        *Speed = random(0, 5);
+        // random random
+        if (*Prog == 0) {
+            *Rand = random(0, 20);
+        } else {
+            *Rand = random(0, 100);
+        }
+    }
 }

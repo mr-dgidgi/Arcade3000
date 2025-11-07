@@ -2,7 +2,7 @@
 
 Junkbox is a simple jukebox in a cyberpunk style.
 
-I was lazy so it as been created with AI
+I was lazy so *it as been created with AI*
 
 The texts are in french, feel free to modify to whaterever language you whant (be carefull that the font can handle your alphabet)
 

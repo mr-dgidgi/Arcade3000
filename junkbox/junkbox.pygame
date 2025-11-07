@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-/!\ Script generated with IA
+/!\ Script generated with AI
 
 Junkbox - Fullscreen Jukebox with Cyberpunk Aesthetic
 Usage: python3 juknkbox.py [music_root_folder] [optional_font_path]
