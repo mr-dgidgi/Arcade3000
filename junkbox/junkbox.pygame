@@ -482,6 +482,17 @@ def main(music_root, font_path=None):
                         stop_playback()
                     elif b in (6, 8):
                         add_credit()
+                    elif b == 2:  # bouton X (souvent 2 sur manette Xbox)
+                        stop_playback()
+                        if queue:
+                            next_track = queue.pop(0)
+                            try:
+                                player.play(next_track)
+                                nm = os.path.splitext(os.path.basename(next_track))[0]
+                                msg = f"Lecture suivante : {nm}"
+                            except Exception as e:
+                                msg = f"Erreur lecture suivante: {e}"
+                            last_msg_time = time.time()
             elif ev.type == pygame.KEYDOWN:
                 if ev.key in (pygame.K_ESCAPE, pygame.K_q):
                     running = False
@@ -499,6 +510,17 @@ def main(music_root, font_path=None):
                     play_or_queue_selected()
                 elif ev.key == pygame.K_s:
                     stop_playback()
+                elif ev.key == pygame.K_n:  # touche n pour next
+                    stop_playback()
+                    if queue:
+                        next_track = queue.pop(0)
+                        try:
+                            player.play(next_track)
+                            nm = os.path.splitext(os.path.basename(next_track))[0]
+                            msg = f"Lecture suivante : {nm}"
+                        except Exception as e:
+                            msg = f"Erreur lecture suivante: {e}"
+                        last_msg_time = time.time()
 
         # Clear
         screen.fill(BG)
