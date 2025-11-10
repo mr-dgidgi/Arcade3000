@@ -24,6 +24,7 @@ The texts are in french, feel free to modify to whaterever language you whant (b
 * SPACE / SELECT : credit
 * ENTER / A button : play / queue
 * S / B button : stop
+* N / X button : next track fron the queue
 * ESCAPE / Q : quit
 
 ## Add music

@@ -482,6 +482,17 @@ def main(music_root, font_path=None):
                         stop_playback()
                     elif b in (6, 8):
                         add_credit()
+                    elif b == 2:  # bouton X (souvent 2 sur manette Xbox)
+                        stop_playback()
+                        if queue:
+                            next_track = queue.pop(0)
+                            try:
+                                player.play(next_track)
+                                nm = os.path.splitext(os.path.basename(next_track))[0]
+                                msg = f"Lecture suivante : {nm}"
+                            except Exception as e:
+                                msg = f"Erreur lecture suivante: {e}"
+                            last_msg_time = time.time()
             elif ev.type == pygame.KEYDOWN:
                 if ev.key in (pygame.K_ESCAPE, pygame.K_q):
                     running = False
@@ -490,15 +501,26 @@ def main(music_root, font_path=None):
                 elif ev.key == pygame.K_RIGHT:
                     move_genre(1)
                 elif ev.key == pygame.K_UP:
-                    move_track(-1)
-                elif ev.key == pygame.K_DOWN:
                     move_track(1)
+                elif ev.key == pygame.K_DOWN:
+                    move_track(-1)
                 elif ev.key == pygame.K_SPACE:
                     add_credit()
                 elif ev.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
                     play_or_queue_selected()
                 elif ev.key == pygame.K_s:
                     stop_playback()
+                elif ev.key == pygame.K_n:  # touche n pour next
+                    stop_playback()
+                    if queue:
+                        next_track = queue.pop(0)
+                        try:
+                            player.play(next_track)
+                            nm = os.path.splitext(os.path.basename(next_track))[0]
+                            msg = f"Lecture suivante : {nm}"
+                        except Exception as e:
+                            msg = f"Erreur lecture suivante: {e}"
+                        last_msg_time = time.time()
 
         # Clear
         screen.fill(BG)
@@ -544,7 +566,7 @@ def main(music_root, font_path=None):
         max_lines = 20
         start = max(0, ti - max_lines//2)
         # --- fond plus clair pour la zone de liste ---
-        list_w = 520  # largeur arbitraire, ajuste si besoin
+        list_w = 620  # largeur arbitraire, ajuste si besoin
         list_h = max_lines * 28 + 12  # hauteur selon nb lignes
         list_bg_color = (30, 30, 40)  # couleur plus claire que BG
         pygame.draw.rect(screen, list_bg_color, (list_x - 16, list_y - 8, list_w, list_h), border_radius=12)
