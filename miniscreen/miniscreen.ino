@@ -837,7 +837,7 @@ void loop() {
         //if dim up        
         case 1:
         case 3:
-          if (Lights[i][1]<Lights[i][2]*50+50) {
+          if (Lights[i][1]<Lights[i][2]*64) {
             ContinueDim(Lights[i][0],&Lights[i][1],Lights[i][3]);
           }
           else {
@@ -848,7 +848,7 @@ void loop() {
         //if dim down
         case 2:
         case 4:
-          if (Lights[i][1]>Lights[i][2]*50) {
+          if (Lights[i][1]>Lights[i][2]*64) {
             ContinueDim(Lights[i][0],&Lights[i][1],Lights[i][3]);
           }
           else {
@@ -858,7 +858,7 @@ void loop() {
 
         // if instant 
         case 5:
-          if (Lights[i][1]!=Lights[i][2]*50) {
+          if (Lights[i][1]!=Lights[i][2]*64) {
             ContinueDim(Lights[i][0],&Lights[i][1],Lights[i][3]);
           }
           else {
@@ -923,16 +923,16 @@ void ContinueDim(int PinNumber, int* PinValue, int DimType) {
             *PinValue = *PinValue;
             break;
         case 1:
-            *PinValue = *PinValue + 5;
+            *PinValue = *PinValue + 8;
             break;
         case 2:
-            *PinValue = *PinValue - 5;
+            *PinValue = *PinValue - 8;
             break;
         case 3:
-            *PinValue = *PinValue + 25;
+            *PinValue = *PinValue + 32;
             break;
         case 4:
-            *PinValue = *PinValue - 25;
+            *PinValue = *PinValue - 32;
             break;
     }
     analogWrite(PinNumber, *PinValue);
