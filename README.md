@@ -31,6 +31,22 @@ A jukebox project made with Python and a lot of AI.
 
 More information in its own README file.
 
+## Custom Marquee
+
+The Marquee folder contains images that will be displayed as custom marquees for the arcade cabinet. You have to place the images in `/userdata/system/backglass` folder : 
+- console images : `/userdata/system/backglass/systems/<system>/logo.png`
+- game images : `/userdata/system/backglass/systems/<system>/games/marquee/<game>.png`
+- game video : `/userdata/system/backglass/systems/<system>/games/marquee/<game>-marquee.mp4`
+
+Follow instructions from [Batocera wiki](https://wiki.batocera.org/hardware:lcd_led_marquees)
+
+This folder contain also `Marquee-video.sh`. This script should be palced in the `/userdata/system/scripts` folder (create it if it doesn't exist). This script will be played when a game start and will display the corresponding marquee video if it exists.
+
+Make sure to give execute permission to the script by running:
+```bash
+chmod +x /userdata/system/scripts/Marquee-video.sh
+```
+> This script is made for 1920x1080 second screen resolution. If you use different resolution, check the argument of batocera-backglass (ps faux | grep batocera-backglass) then replicate it on the gemetry line onf the script.
 
 
 ## More things... (when I'll have time)

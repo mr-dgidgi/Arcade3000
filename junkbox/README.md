@@ -45,3 +45,14 @@ Just put the audio files (wav,mp3,ogg,flac) in a subfolder inside music folder
 
 If you whant to change the font just put your ttf file inside assets/fonts
 
+## EmulationStation
+
+For the best experience, after game discovery, add de 2 following lines to your gamelist.xml for Junkbox:
+
+```xml
+		<image>./images/junkbox.png</image>
+		<marquee>./images/junkbox.png</marquee>
+```
+
+Then move the ./assets/junkbox.png image to the pygame/images/ folder.
+
